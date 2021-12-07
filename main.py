@@ -8,6 +8,8 @@ from statsmodels.regression.linear_model import OLS
 from sklearn.preprocessing import PolynomialFeatures
 import re
 from typing import List
+import shap
+import lightgbm
 
 import prepare_data
 
@@ -98,9 +100,10 @@ def select_features(pdf):
     return pdf_model
 
 
-def fit_linear_regression(pdf, include_interaction=True):
+def prepare_train_test_datasets(pdf, include_interaction):
     target_col = "searches"
     date_col = "date"
+
     if include_interaction:
         pdf_model = select_features(pdf)
     else:
@@ -112,14 +115,33 @@ def fit_linear_regression(pdf, include_interaction=True):
     print(f"Categorical columns: {categorical_cols}")
 
     pdf_model.reset_index(inplace=True)
-
-    print("pdf_model:", pdf_model.columns)
+    # print("pdf_model:", pdf_model.columns)
     train_pdf, test_pdf = split_train_test(pdf_model, numerical_cols, categorical_cols, target_col, date_col)
     x_train, y_train, x_test, y_test = select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols, target_col)
+    return (x_train, y_train, x_test, y_test)
+
+
+def fit_linear_regression(pdf, include_interaction=True):
+    (x_train, y_train, x_test, y_test) = prepare_train_test_datasets(pdf, include_interaction=include_interaction)
     model = LinearRegression()
     fitted_model = model.fit(x_train, y_train)
     y_pred = pd.Series(fitted_model.predict(x_test))
-    return y_test, y_pred
+    regression_shap_values = decompose_shap_values(fitted_model, x_train, x_test, shap.LinearExplainer)
+    return y_test, y_pred, regression_shap_values
+
+
+def calc_shap_values(fitted_model, X, shap_explainer):
+    explainer = shap_explainer(fitted_model, X)
+    shapley_values = explainer.shap_values(X)
+    shapley_values_df = pd.DataFrame(shapley_values, index=X.index, columns=X.columns)
+    return shapley_values_df
+
+
+def decompose_shap_values(fitted_model, x_train, x_test, shap_explainer):
+    shapley_values_train = calc_shap_values(fitted_model, x_train, shap_explainer)
+    shapley_values_test = calc_shap_values(fitted_model, x_test, shap_explainer)
+    decomposed_shapley_values = pd.concat([shapley_values_train, shapley_values_test])
+    return decomposed_shapley_values
 
 
 def join_preds_to_actuals(y_pred, y_test, predictions_column="preds", observed_column="actuals"):
@@ -146,12 +168,14 @@ def calculate_variance(y_pred, y_test):
 
 if __name__ == "__main__":
     pdf = prepare_data.prepare_input_data()
-    y_test, y_pred = fit_linear_regression(pdf=pdf, include_interaction=False)
+    y_test, y_pred, regression_shap_values = fit_linear_regression(pdf=pdf, include_interaction=False)
     print("Scores without interactions included:")
     calculate_rmse(y_pred, y_test)
     calculate_variance(y_pred, y_test)
+    print(regression_shap_values)
 
-    y_test_interactions, y_pred_interactions = fit_linear_regression(pdf=pdf, include_interaction=True)
+    y_test_interactions, y_pred_interactions, interactions_shap_values = fit_linear_regression(pdf=pdf, include_interaction=True)
     print("Scores with interactions included:")
     calculate_rmse(y_pred_interactions, y_test_interactions)
     calculate_variance(y_pred_interactions, y_test_interactions)
+    print(interactions_shap_values)
