@@ -1,0 +1,4 @@
+/data/meteo-data/
+.vscode/
+.idea/
+__pycache__/
