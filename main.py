@@ -130,6 +130,29 @@ def fit_linear_regression(pdf, include_interaction=True):
     return y_test, y_pred, regression_shap_values
 
 
+def fit_lightgbm(pdf, include_interaction=False):
+    (x_train, y_train, x_test, y_test) = prepare_train_test_datasets(pdf, include_interaction=include_interaction)
+    params = get_gbm_parameters()
+    model = lightgbm.sklearn.LGBMRegressor(**params)
+    fitted_model = model.fit(x_train, y_train)
+    y_pred = pd.Series(fitted_model.predict(x_test))
+    regression_shap_values = decompose_shap_values(fitted_model, x_train, x_test, shap.TreeExplainer)
+    return y_test, y_pred, regression_shap_values
+
+
+def get_gbm_parameters():
+    params = {
+        "task": "train",
+        "boosting_type": "gbdt",
+        "objective": "rmse",
+        "metric": ["l2", "rmse"],
+        "learning_rate": 0.005,
+        "num_leaves": 128,
+        "max_bin": 512,
+    }
+    return params
+
+
 def calc_shap_values(fitted_model, X, shap_explainer):
     explainer = shap_explainer(fitted_model, X)
     shapley_values = explainer.shap_values(X)
@@ -168,14 +191,18 @@ def calculate_variance(y_pred, y_test):
 
 if __name__ == "__main__":
     pdf = prepare_data.prepare_input_data()
-    y_test, y_pred, regression_shap_values = fit_linear_regression(pdf=pdf, include_interaction=False)
-    print("Scores without interactions included:")
-    calculate_rmse(y_pred, y_test)
-    calculate_variance(y_pred, y_test)
-    print(regression_shap_values)
 
+    print("Scores for linear regression without interactions:")
+    y_test, y_pred, regression_shap_values = fit_linear_regression(pdf=pdf, include_interaction=False)
+    calculate_rmse(y_pred, y_test)
+    # print(regression_shap_values)
+
+    print("Scores for linear regression with interactions:")
     y_test_interactions, y_pred_interactions, interactions_shap_values = fit_linear_regression(pdf=pdf, include_interaction=True)
-    print("Scores with interactions included:")
     calculate_rmse(y_pred_interactions, y_test_interactions)
-    calculate_variance(y_pred_interactions, y_test_interactions)
-    print(interactions_shap_values)
+    # print(interactions_shap_values)
+
+    print("Scores for LightGBM model:")
+    y_test_gbm, y_pred_gbm, gbm_shap_values = fit_lightgbm(pdf=pdf)
+    calculate_rmse(y_pred_gbm, y_test_gbm)
+    # print(gbm_shap_values)
