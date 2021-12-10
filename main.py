@@ -10,23 +10,9 @@ import re
 from typing import List
 import shap
 import lightgbm
+from sklearn.model_selection import TimeSeriesSplit
 
 import prepare_data
-
-
-def split_train_test(pdf, numerical_cols, categorical_cols, target_col, date_col):
-    start_train = datetime(2018, 1, 1)
-    end_train = datetime(2020, 11, 30)
-    start_test = datetime(2020, 6, 1)
-    end_test = datetime(2020, 9, 6)
-
-    pdf_filtered = pdf[numerical_cols + categorical_cols + [target_col, date_col]]
-    train_pdf = pdf_filtered.loc[(pdf_filtered[date_col] >= start_train) & (pdf_filtered[date_col] <= end_train)]
-    test_pdf = pdf_filtered.loc[(pdf_filtered[date_col] > start_test) & (pdf_filtered[date_col] < end_test)]
-
-    train_pdf = train_pdf.set_index(date_col)
-    test_pdf = test_pdf.set_index(date_col)
-    return train_pdf, test_pdf
 
 
 def select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols, target_col):
@@ -45,9 +31,7 @@ def get_column_type(pdf: pd.DataFrame, suffix: str) -> List:
     return filtered_list
 
 
-def select_features(pdf):
-    target_col = "searches"
-    date_col = "date"
+def select_features(pdf, verbose=False, target_col="searches", date_col="date"):
     pdf = pdf.sort_values(by=[date_col], ascending=True)
 
     # this ensures that the date column is not part of the feature selection
@@ -89,8 +73,11 @@ def select_features(pdf):
     pdf_interaction_date = pd.concat([pdf_interaction, pdf_dates], axis=1).set_index(date_col)
 
     interaction_model = OLS(y, pdf_interaction_date).fit()
-    # print("pdf_interaction_date:", pdf_interaction_date.columns)
-    # print("y:", y.head())
+
+    if verbose:
+        print("pdf_interaction_date:", pdf_interaction_date.columns)
+        print("y:", y.head())
+
     pdf_significant_features = interaction_model.pvalues[interaction_model.pvalues < 0.05]
 
     list_significant_features = list(pdf_significant_features.index.values)
@@ -100,29 +87,7 @@ def select_features(pdf):
     return pdf_model
 
 
-def prepare_train_test_datasets(pdf, include_interaction):
-    target_col = "searches"
-    date_col = "date"
-
-    if include_interaction:
-        pdf_model = select_features(pdf)
-    else:
-        pdf_model = pdf.copy()
-
-    numerical_cols = get_column_type(pdf_model, "num")
-    categorical_cols = get_column_type(pdf_model, "cat")
-    print(f"Numerical columns: {numerical_cols}")
-    print(f"Categorical columns: {categorical_cols}")
-
-    pdf_model.reset_index(inplace=True)
-    # print("pdf_model:", pdf_model.columns)
-    train_pdf, test_pdf = split_train_test(pdf_model, numerical_cols, categorical_cols, target_col, date_col)
-    x_train, y_train, x_test, y_test = select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols, target_col)
-    return (x_train, y_train, x_test, y_test)
-
-
-def fit_linear_regression(pdf, include_interaction=True):
-    (x_train, y_train, x_test, y_test) = prepare_train_test_datasets(pdf, include_interaction=include_interaction)
+def fit_linear_regression(x_train, y_train, x_test, y_test):
     model = LinearRegression()
     fitted_model = model.fit(x_train, y_train)
     y_pred = pd.Series(fitted_model.predict(x_test))
@@ -130,8 +95,7 @@ def fit_linear_regression(pdf, include_interaction=True):
     return y_test, y_pred, regression_shap_values
 
 
-def fit_lightgbm(pdf, include_interaction=False):
-    (x_train, y_train, x_test, y_test) = prepare_train_test_datasets(pdf, include_interaction=include_interaction)
+def fit_lightgbm(x_train, y_train, x_test, y_test):
     params = get_gbm_parameters()
     model = lightgbm.sklearn.LGBMRegressor(**params)
     fitted_model = model.fit(x_train, y_train)
@@ -167,6 +131,35 @@ def decompose_shap_values(fitted_model, x_train, x_test, shap_explainer):
     return decomposed_shapley_values
 
 
+def run_model(pdf, include_interaction=True, linear=True, target_col="searches", date_col="date"):
+    if include_interaction:
+        pdf_model = select_features(pdf)
+    else:
+        pdf_model = pdf.copy()
+
+    numerical_cols = get_column_type(pdf_model, "num")
+    categorical_cols = get_column_type(pdf_model, "cat")
+    print(f"Numerical columns: {numerical_cols}")
+    print(f"Categorical columns: {categorical_cols}")
+
+    pdf_model.reset_index(inplace=True)
+
+    # Cross-validation
+    tscv_train = TimeSeriesSplit(test_size=2, n_splits=5)
+    pdf_model = pdf_model.sort_values(by=[date_col], ascending=True)
+
+    for train_index, validate_test_index in tscv_train.split(pdf.index):
+        train_pdf = pdf_model.iloc[train_index].set_index(date_col)
+        test_pdf = pdf_model.iloc[[validate_test_index[1]]].set_index(date_col)
+        x_train, y_train, x_test, y_test = select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols, target_col)
+
+        if linear:
+            y_test, y_pred, regression_shap_values = fit_linear_regression(x_train, y_train, x_test, y_test)
+        elif not linear:
+            y_test, y_pred, regression_shap_values = fit_lightgbm(x_train, y_train, x_test, y_test)
+    return y_test, y_pred, regression_shap_values
+
+
 def join_preds_to_actuals(y_pred, y_test, predictions_column="preds", observed_column="actuals"):
     # returns pd DataFrame with predictions and actuals
     eval_table = pd.concat([y_pred.reset_index(drop=True), y_test.reset_index(drop=True)], axis=1)
@@ -184,25 +177,20 @@ def calculate_rmse(y_pred, y_test, predictions_column="preds", observed_column="
     print(f"RMSE: {rmse_score}")
 
 
-def calculate_variance(y_pred, y_test):
-    variance_score = explained_variance_score(y_test, y_pred)
-    print(f"Variance score: {variance_score}")
-
-
 if __name__ == "__main__":
     pdf = prepare_data.prepare_input_data()
 
-    print("Scores for linear regression without interactions:")
-    y_test, y_pred, regression_shap_values = fit_linear_regression(pdf=pdf, include_interaction=False)
+    print("Running linear regression without interactions:")
+    y_test, y_pred, regression_shap_values = run_model(pdf, include_interaction=False, linear=True)
     calculate_rmse(y_pred, y_test)
-    # print(regression_shap_values)
+    print(regression_shap_values.tail(5))
 
-    print("Scores for linear regression with interactions:")
-    y_test_interactions, y_pred_interactions, interactions_shap_values = fit_linear_regression(pdf=pdf, include_interaction=True)
+    print("Running linear regression with interactions:")
+    y_test_interactions, y_pred_interactions, interactions_shap_values = run_model(pdf, include_interaction=True, linear=True)
     calculate_rmse(y_pred_interactions, y_test_interactions)
-    # print(interactions_shap_values)
+    print(interactions_shap_values.tail(5))
 
-    print("Scores for LightGBM model:")
-    y_test_gbm, y_pred_gbm, gbm_shap_values = fit_lightgbm(pdf=pdf)
+    print("Running LightGBM:")
+    y_test_gbm, y_pred_gbm, gbm_shap_values = run_model(pdf, include_interaction=False, linear=False)
     calculate_rmse(y_pred_gbm, y_test_gbm)
-    # print(gbm_shap_values)
+    print(gbm_shap_values.tail(5))
