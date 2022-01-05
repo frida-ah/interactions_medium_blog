@@ -183,14 +183,14 @@ if __name__ == "__main__":
     print("Running linear regression without interactions:")
     y_test, y_pred, regression_shap_values = run_model(pdf, include_interaction=False, linear=True)
     calculate_rmse(y_pred, y_test)
-    print(regression_shap_values.tail(5))
+    # print(regression_shap_values.tail(5))
 
     print("Running linear regression with interactions:")
     y_test_interactions, y_pred_interactions, interactions_shap_values = run_model(pdf, include_interaction=True, linear=True)
     calculate_rmse(y_pred_interactions, y_test_interactions)
-    print(interactions_shap_values.tail(5))
+    # print(interactions_shap_values.tail(5))
 
     print("Running LightGBM:")
     y_test_gbm, y_pred_gbm, gbm_shap_values = run_model(pdf, include_interaction=False, linear=False)
     calculate_rmse(y_pred_gbm, y_test_gbm)
-    print(gbm_shap_values.tail(5))
+    # print(gbm_shap_values.tail(5))

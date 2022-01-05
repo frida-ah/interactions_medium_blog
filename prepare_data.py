@@ -56,17 +56,13 @@ def download_google_trends(
             backoff_factor=gt_backoff_factor,
         )
 
-        # Set the right configuration for request query Google trends. Where needed make sure the request is global
-        if country_code != "WORLD":
-            print(list_keywords, search_category, gt_date_filter)
-            pytrends.build_payload(
-                kw_list=list_keywords,
-                cat=search_category,
-                timeframe=gt_date_filter,
-                geo=country_code,
-            )
-        if country_code == "WORLD":
-            pytrends.build_payload(kw_list=list_keywords, cat=search_category, timeframe=gt_date_filter)
+        print(list_keywords, search_category, gt_date_filter)
+        pytrends.build_payload(
+            kw_list=list_keywords,
+            cat=search_category,
+            timeframe=gt_date_filter,
+            geo=country_code,
+        )
 
         # Download time-series
         pdf_temp_google_trends_results = None
