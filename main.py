@@ -1,16 +1,15 @@
-from datetime import datetime
-import pandas as pd
-from sklearn.linear_model import LinearRegression
-import numpy as np
-from sklearn.metrics import mean_squared_error
-from sklearn.metrics import explained_variance_score
-from statsmodels.regression.linear_model import OLS
-from sklearn.preprocessing import PolynomialFeatures
 import re
-from typing import List
-import shap
+from datetime import datetime
+
 import lightgbm
+import numpy as np
+import pandas as pd
+import shap
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import PolynomialFeatures
+from statsmodels.regression.linear_model import OLS
 
 import prepare_data
 
@@ -24,7 +23,7 @@ def select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols
     return x_train, y_train, x_test, y_test
 
 
-def get_column_type(pdf: pd.DataFrame, suffix: str) -> List:
+def get_column_type(pdf: pd.DataFrame, suffix: str):
     column_names = pdf.columns
     r = re.compile(".*" + suffix)
     filtered_list = list(filter(r.match, column_names))
@@ -38,35 +37,19 @@ def select_features(pdf, verbose=False, target_col="searches", date_col="date"):
     pdf = pdf.set_index(date_col)
 
     y = pdf[target_col]
-    X = pdf[
-        [
-            "total_rainfall_num",
-            "avg_sunshine_num",
-            "avg_temperature_num",
-            "holiday_cat",
-        ]
-    ]
+    X = pdf[["avg_temperature_num", "holiday_cat"]]
     model = OLS(y, X).fit()
 
     model.summary()
 
     # generating interaction terms
-    x_interaction = PolynomialFeatures(2, interaction_only=True, include_bias=False).fit_transform(X)
+    x_interaction = PolynomialFeatures(2, interaction_only=True, include_bias=False).fit_transform(
+        X
+    )
 
     pdf_interaction = pd.DataFrame(
         x_interaction,
-        columns=[
-            "total_rainfall_num",
-            "avg_sunshine_num",
-            "avg_temperature_num",
-            "holiday_cat",
-            "rainfall_sunshine_num",
-            "rainfall_temperature_num",
-            "rainfall_holiday_num",
-            "sunshine_temperature_num",
-            "sunshine_holiday_num",
-            "temperature_holiday_num",
-        ],
+        columns=["avg_temperature_num", "holiday_cat", "temperature_holiday_num"],
     )
     pdf_dates = pdf.copy().reset_index(drop=False)[[date_col]]
 
@@ -91,7 +74,9 @@ def fit_linear_regression(x_train, y_train, x_test, y_test):
     model = LinearRegression()
     fitted_model = model.fit(x_train, y_train)
     y_pred = pd.Series(fitted_model.predict(x_test))
-    regression_shap_values = decompose_shap_values(fitted_model, x_train, x_test, shap.LinearExplainer)
+    regression_shap_values = decompose_shap_values(
+        fitted_model, x_train, x_test, shap.LinearExplainer
+    )
     return y_test, y_pred, regression_shap_values
 
 
@@ -100,7 +85,9 @@ def fit_lightgbm(x_train, y_train, x_test, y_test):
     model = lightgbm.sklearn.LGBMRegressor(**params)
     fitted_model = model.fit(x_train, y_train)
     y_pred = pd.Series(fitted_model.predict(x_test))
-    regression_shap_values = decompose_shap_values(fitted_model, x_train, x_test, shap.TreeExplainer)
+    regression_shap_values = decompose_shap_values(
+        fitted_model, x_train, x_test, shap.TreeExplainer
+    )
     return y_test, y_pred, regression_shap_values
 
 
@@ -151,10 +138,14 @@ def run_model(pdf, include_interaction=True, linear=True, target_col="searches",
     for train_index, validate_test_index in tscv_train.split(pdf.index):
         train_pdf = pdf_model.iloc[train_index].set_index(date_col)
         test_pdf = pdf_model.iloc[[validate_test_index[1]]].set_index(date_col)
-        x_train, y_train, x_test, y_test = select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols, target_col)
+        x_train, y_train, x_test, y_test = select_features_target(
+            train_pdf, test_pdf, numerical_cols, categorical_cols, target_col
+        )
 
         if linear:
-            y_test, y_pred, regression_shap_values = fit_linear_regression(x_train, y_train, x_test, y_test)
+            y_test, y_pred, regression_shap_values = fit_linear_regression(
+                x_train, y_train, x_test, y_test
+            )
         elif not linear:
             y_test, y_pred, regression_shap_values = fit_lightgbm(x_train, y_train, x_test, y_test)
     return y_test, y_pred, regression_shap_values
@@ -186,11 +177,15 @@ if __name__ == "__main__":
     # print(regression_shap_values.tail(5))
 
     print("Running linear regression with interactions:")
-    y_test_interactions, y_pred_interactions, interactions_shap_values = run_model(pdf, include_interaction=True, linear=True)
+    y_test_interactions, y_pred_interactions, interactions_shap_values = run_model(
+        pdf, include_interaction=True, linear=True
+    )
     calculate_rmse(y_pred_interactions, y_test_interactions)
     # print(interactions_shap_values.tail(5))
 
     print("Running LightGBM:")
-    y_test_gbm, y_pred_gbm, gbm_shap_values = run_model(pdf, include_interaction=False, linear=False)
+    y_test_gbm, y_pred_gbm, gbm_shap_values = run_model(
+        pdf, include_interaction=False, linear=False
+    )
     calculate_rmse(y_pred_gbm, y_test_gbm)
     # print(gbm_shap_values.tail(5))

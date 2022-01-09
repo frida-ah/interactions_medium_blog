@@ -1,9 +1,10 @@
+import datetime
+
+import numpy as np
+import pandas as pd
 from dateutil.relativedelta import relativedelta
 from pytrends.request import TrendReq
 from workalendar.europe import NetherlandsWithSchoolHolidays as NL
-import pandas as pd
-import numpy as np
-import datetime
 
 
 def create_date_filter(duration_filter, end_date=None, date_format="%Y-%m-%d"):
@@ -68,12 +69,17 @@ def download_google_trends(
         pdf_temp_google_trends_results = None
         pdf_temp_google_trends_results = pytrends.interest_over_time()
 
-        if pdf_temp_google_trends_results is not None and len(pdf_temp_google_trends_results.index) > 0:
+        if (
+            pdf_temp_google_trends_results is not None
+            and len(pdf_temp_google_trends_results.index) > 0
+        ):
             # Reset the index of dataframe
             pdf_temp_google_trends_results.reset_index(inplace=True)
             pdf_temp_google_trends_results = pdf_temp_google_trends_results.reset_index(drop=True)
             # Recast date field into string
-            pdf_temp_google_trends_results["date"] = pdf_temp_google_trends_results["date"].astype(str).str[:10]
+            pdf_temp_google_trends_results["date"] = (
+                pdf_temp_google_trends_results["date"].astype(str).str[:10]
+            )
             # Reshape the dataframe into long format (if configured)
             if long_format is True:
                 pdf_temp_google_trends_results_long = pd.melt(
@@ -84,13 +90,17 @@ def download_google_trends(
                     value_name="value",
                     col_level=None,
                 )
-                pdf_temp_google_trends_results_final = pdf_temp_google_trends_results_long.rename(columns={"variable": "keyword", "value": "interest"})
+                pdf_temp_google_trends_results_final = pdf_temp_google_trends_results_long.rename(
+                    columns={"variable": "keyword", "value": "interest"}
+                )
 
             # Keep the dataframe into wide format (if configured).
             if long_format is False:
                 pdf_temp_google_trends_results_final = pdf_temp_google_trends_results
         # Create the right Index for the dataframe
-        pdf_temp_google_trends_results_final = pdf_temp_google_trends_results_final.set_index("date")
+        pdf_temp_google_trends_results_final = pdf_temp_google_trends_results_final.set_index(
+            "date"
+        )
     return pdf_temp_google_trends_results_final
 
 
@@ -107,35 +117,35 @@ def create_test_data(keyword):
 
 
 def get_school_holidays():
-    years = [2018, 2019, 2020]
-    regions = ["north", "middle", "south"]
+    calendar = NL(region="north", carnival_instead_of_spring=True)
 
-    holiday_dict = {}
+    years = [2018, 2019, 2020]
+    holiday_years_dict = {}
 
     for year in years:
-        for region in regions:
-            calendar = NL(region=region)
+        holiday_list = calendar.holidays(year)
 
-            # Get a list of holidays
-            holiday_list = calendar.holidays(year)
+        # Make a dictionary with a list of holidays for each date entry
+        holiday_dict = {}
+        for h in holiday_list:
+            holiday_dict.setdefault(h[0], []).append(h[1])
 
-            # Make a dictionary with a list of holidays for each date entry
-            holiday_region_dict = {}
-            for h in holiday_list:
-                holiday_region_dict.setdefault(h[0], []).append(h[1])
+        holiday_years_dict.update(holiday_dict)
 
-            holiday_dict.update(holiday_region_dict)
-
-    pdf_holidays = pd.DataFrame.from_dict(holiday_dict, orient="index", columns=["Holiday1", "Holiday2"])
-    pdf_holidays = pdf_holidays.drop_duplicates()
+    pdf_holidays = pd.DataFrame.from_dict(
+        holiday_years_dict, orient="index", columns=["Holiday1", "Holiday2"]
+    )
     pdf_holidays.index.names = ["date"]
     pdf_holidays = pdf_holidays.reset_index(drop=False)
 
     pdf_holidays = pdf_holidays.sort_values(by=["date"], ascending=True)
     pdf_holidays = pdf_holidays.set_index("date")
     pdf_holidays.index = pd.DatetimeIndex(pdf_holidays.index)
-    pdf_holidays = pdf_holidays.resample("W").agg({"Holiday1": "count"})
-    pdf_holidays = pdf_holidays.rename(columns={"Holiday1": "holiday_cat"})
+    pdf_holidays = pdf_holidays.fillna(0)
+    pdf_holidays["holiday_cat"] = np.where(pdf_holidays["Holiday1"] != 0, 1, 0)
+
+    pdf_holidays = pdf_holidays.resample("W").agg({"holiday_cat": "max"})
+    pdf_holidays = pdf_holidays.fillna(0)
     pdf_holidays = pdf_holidays.reset_index(drop=False)
     return pdf_holidays
 
@@ -149,22 +159,19 @@ def get_weather_data():
     date_col = "date"
     weather_data_file = "data/meteo-data/parquet_new"
     pdf_weather = pd.read_parquet(weather_data_file)
-    pdf_weather = pdf_weather.loc[pdf_weather.loc[:, "station_identifier"].str.contains("NLE", regex=True)]
+    pdf_weather = pdf_weather.loc[pdf_weather.loc[:, "station_identifier"].str.startswith("NL")]
+    pdf_weather = pdf_weather.loc[pdf_weather.loc[:, "observation_type"] == "TAVG"]
+
     pdf_weather = pdf_weather.pivot_table("observation_value", ["date"], "observation_type")
     pdf_weather.reset_index(drop=False, inplace=True)
-    pdf_weather = pdf_weather.drop(["TMAX", "TMIN"], axis=1)
-    pdf_weather.reset_index(inplace=True)
+    pdf_weather["avg_temperature_num"] = (
+        pdf_weather["TAVG"] / 10
+    )  # temperature is measured in 10th of degrees Celsius in dataset
     pdf_weather = set_columns_type(pdf_weather, ["date"], "datetime64[ns]")
+
     pdf_weather = pdf_weather.set_index(date_col)
-    pdf_weather = pdf_weather.resample("W").agg({"PRCP": np.sum, "SNWD": np.mean, "TAVG": np.mean})
+    pdf_weather = pdf_weather.resample("W").agg({"avg_temperature_num": np.mean})
     pdf_weather.reset_index(inplace=True)
-    pdf_weather = pdf_weather.rename(
-        columns={
-            "PRCP": "total_rainfall_num",
-            "SNWD": "avg_sunshine_num",
-            "TAVG": "avg_temperature_num",
-        }
-    )
     return pdf_weather
 
 
@@ -173,13 +180,12 @@ def prepare_input_data():
     pdf_searches = create_test_data("ijs")
     # time holidays: 2018 - 2020, aggregation on week level
     pdf_holidays = get_school_holidays()
-    # time weather: 2018-2020, aggregation on week level
+    # time weather: 2018 - 2020, aggregation on week level
     pdf_weather = get_weather_data()
 
     pdf = pd.merge(
-        pd.merge(pdf_searches, pdf_holidays, how="left", on=["date"]),
+        pd.merge(pdf_holidays, pdf_searches, how="left", on=["date"]),
         pdf_weather,
         on="date",
     )
-    pdf = pdf.fillna(0)
     return pdf
