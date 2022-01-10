@@ -14,7 +14,9 @@ from statsmodels.regression.linear_model import OLS
 import prepare_data
 
 
-def select_features_target(train_pdf, test_pdf, numerical_cols, categorical_cols, target_col):
+def select_features_target(
+    train_pdf, test_pdf, numerical_cols, categorical_cols, target_col
+):
     x_train = train_pdf[numerical_cols + categorical_cols]
     x_test = test_pdf[numerical_cols + categorical_cols]
 
@@ -43,9 +45,9 @@ def select_features(pdf, target_col="searches", date_col="date"):
     model.summary()
 
     # generating interaction terms
-    x_interaction = PolynomialFeatures(2, interaction_only=True, include_bias=False).fit_transform(
-        X
-    )
+    x_interaction = PolynomialFeatures(
+        2, interaction_only=True, include_bias=False
+    ).fit_transform(X)
 
     pdf_interaction = pd.DataFrame(
         x_interaction,
@@ -53,11 +55,15 @@ def select_features(pdf, target_col="searches", date_col="date"):
     )
     pdf_dates = pdf.copy().reset_index(drop=False)[[date_col]]
 
-    pdf_interaction_date = pd.concat([pdf_interaction, pdf_dates], axis=1).set_index(date_col)
+    pdf_interaction_date = pd.concat(
+        [pdf_interaction, pdf_dates], axis=1
+    ).set_index(date_col)
 
     interaction_model = OLS(y, pdf_interaction_date).fit()
 
-    pdf_significant_features = interaction_model.pvalues[interaction_model.pvalues < 0.05]
+    pdf_significant_features = interaction_model.pvalues[
+        interaction_model.pvalues < 0.05
+    ]
 
     list_significant_features = list(pdf_significant_features.index.values)
     pdf_model = pdf_interaction[list_significant_features]
@@ -103,18 +109,30 @@ def get_gbm_parameters():
 def calc_shap_values(fitted_model, X, shap_explainer):
     explainer = shap_explainer(fitted_model, X)
     shapley_values = explainer.shap_values(X)
-    shapley_values_df = pd.DataFrame(shapley_values, index=X.index, columns=X.columns)
+    shapley_values_df = pd.DataFrame(
+        shapley_values, index=X.index, columns=X.columns
+    )
     return shapley_values_df
 
 
 def decompose_shap_values(fitted_model, x_train, x_test, shap_explainer):
-    shapley_values_train = calc_shap_values(fitted_model, x_train, shap_explainer)
+    shapley_values_train = calc_shap_values(
+        fitted_model, x_train, shap_explainer
+    )
     shapley_values_test = calc_shap_values(fitted_model, x_test, shap_explainer)
-    decomposed_shapley_values = pd.concat([shapley_values_train, shapley_values_test])
+    decomposed_shapley_values = pd.concat(
+        [shapley_values_train, shapley_values_test]
+    )
     return decomposed_shapley_values
 
 
-def run_model(pdf, include_interaction=True, linear=True, target_col="searches", date_col="date"):
+def run_model(
+    pdf,
+    include_interaction=True,
+    linear=True,
+    target_col="searches",
+    date_col="date",
+):
     if include_interaction:
         pdf_model = select_features(pdf)
     else:
@@ -143,21 +161,31 @@ def run_model(pdf, include_interaction=True, linear=True, target_col="searches",
                 x_train, y_train, x_test, y_test
             )
         elif not linear:
-            y_test, y_pred, regression_shap_values = fit_lightgbm(x_train, y_train, x_test, y_test)
+            y_test, y_pred, regression_shap_values = fit_lightgbm(
+                x_train, y_train, x_test, y_test
+            )
     return y_test, y_pred, regression_shap_values
 
 
-def join_preds_to_actuals(y_pred, y_test, predictions_column="preds", observed_column="actuals"):
+def join_preds_to_actuals(
+    y_pred, y_test, predictions_column="preds", observed_column="actuals"
+):
     # returns pd DataFrame with predictions and actuals
-    eval_table = pd.concat([y_pred.reset_index(drop=True), y_test.reset_index(drop=True)], axis=1)
+    eval_table = pd.concat(
+        [y_pred.reset_index(drop=True), y_test.reset_index(drop=True)], axis=1
+    )
     eval_table.columns = [predictions_column, observed_column]
     return eval_table
 
 
-def calculate_rmse(y_pred, y_test, predictions_column="preds", observed_column="actuals"):
+def calculate_rmse(
+    y_pred, y_test, predictions_column="preds", observed_column="actuals"
+):
     eval_table = join_preds_to_actuals(y_pred, y_test)
     mse_score = round(
-        mean_squared_error(eval_table[observed_column], eval_table[predictions_column]),
+        mean_squared_error(
+            eval_table[observed_column], eval_table[predictions_column]
+        ),
         2,
     )
     rmse_score = round(np.sqrt(mse_score), 3)
@@ -168,14 +196,18 @@ if __name__ == "__main__":
     pdf = prepare_data.prepare_input_data()
 
     print("Running linear regression without interactions:")
-    y_test, y_pred, regression_shap_values = run_model(pdf, include_interaction=False, linear=True)
+    y_test, y_pred, regression_shap_values = run_model(
+        pdf, include_interaction=False, linear=True
+    )
     calculate_rmse(y_pred, y_test)
     # print(regression_shap_values.tail(5))
 
     print("Running linear regression with interactions:")
-    y_test_interactions, y_pred_interactions, interactions_shap_values = run_model(
-        pdf, include_interaction=True, linear=True
-    )
+    (
+        y_test_interactions,
+        y_pred_interactions,
+        interactions_shap_values,
+    ) = run_model(pdf, include_interaction=True, linear=True)
     calculate_rmse(y_pred_interactions, y_test_interactions)
     # print(interactions_shap_values.tail(5))
 

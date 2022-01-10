@@ -67,7 +67,9 @@ def download_google_trends(
         ):
             # Reset the index of dataframe
             pdf_temp_google_trends_results.reset_index(inplace=True)
-            pdf_temp_google_trends_results = pdf_temp_google_trends_results.reset_index(drop=True)
+            pdf_temp_google_trends_results = (
+                pdf_temp_google_trends_results.reset_index(drop=True)
+            )
             # Recast date field into string
             pdf_temp_google_trends_results["date"] = (
                 pdf_temp_google_trends_results["date"].astype(str).str[:10]
@@ -82,16 +84,20 @@ def download_google_trends(
                     value_name="value",
                     col_level=None,
                 )
-                pdf_temp_google_trends_results_final = pdf_temp_google_trends_results_long.rename(
-                    columns={"variable": "keyword", "value": "interest"}
+                pdf_temp_google_trends_results_final = (
+                    pdf_temp_google_trends_results_long.rename(
+                        columns={"variable": "keyword", "value": "interest"}
+                    )
                 )
 
             # Keep the dataframe into wide format (if configured).
             if long_format is False:
-                pdf_temp_google_trends_results_final = pdf_temp_google_trends_results
+                pdf_temp_google_trends_results_final = (
+                    pdf_temp_google_trends_results
+                )
         # Create the right Index for the dataframe
-        pdf_temp_google_trends_results_final = pdf_temp_google_trends_results_final.set_index(
-            "date"
+        pdf_temp_google_trends_results_final = (
+            pdf_temp_google_trends_results_final.set_index("date")
         )
     return pdf_temp_google_trends_results_final
 
@@ -99,7 +105,9 @@ def download_google_trends(
 def create_test_data(keyword):
     duration_filter = 36
     date_filter = create_date_filter(duration_filter, "2020-12-31")
-    google_trends_pdf = download_google_trends(date_filter, list_keywords=[keyword])
+    google_trends_pdf = download_google_trends(
+        date_filter, list_keywords=[keyword]
+    )
     google_trends_pdf = google_trends_pdf.sort_index()
     timeseries_test = google_trends_pdf[["interest"]]
     timeseries_test = timeseries_test.rename(columns={"interest": "searches"})
@@ -151,10 +159,16 @@ def get_weather_data():
     date_col = "date"
     weather_data_file = "data/meteo-data/parquet_new"
     pdf_weather = pd.read_parquet(weather_data_file)
-    pdf_weather = pdf_weather.loc[pdf_weather.loc[:, "station_identifier"].str.startswith("NL")]
-    pdf_weather = pdf_weather.loc[pdf_weather.loc[:, "observation_type"] == "TAVG"]
+    pdf_weather = pdf_weather.loc[
+        pdf_weather.loc[:, "station_identifier"].str.startswith("NL")
+    ]
+    pdf_weather = pdf_weather.loc[
+        pdf_weather.loc[:, "observation_type"] == "TAVG"
+    ]
 
-    pdf_weather = pdf_weather.pivot_table("observation_value", ["date"], "observation_type")
+    pdf_weather = pdf_weather.pivot_table(
+        "observation_value", ["date"], "observation_type"
+    )
     pdf_weather.reset_index(drop=False, inplace=True)
     pdf_weather["temperature_num"] = (
         pdf_weather["TAVG"] / 10
