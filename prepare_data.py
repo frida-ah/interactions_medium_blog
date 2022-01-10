@@ -9,8 +9,6 @@ from workalendar.europe import NetherlandsWithSchoolHolidays as NL
 
 def create_date_filter(duration_filter, end_date=None, date_format="%Y-%m-%d"):
     # Reformat Date
-    print("Duration filter Google Trends", duration_filter)
-
     if end_date is not None:
         end_date = datetime.datetime.strptime(end_date, date_format)
         end_date = end_date.date()
@@ -19,13 +17,9 @@ def create_date_filter(duration_filter, end_date=None, date_format="%Y-%m-%d"):
     if end_date is None:
         end_date = datetime.date.today()
 
-    print("End Date time filter Google Trends", end_date)
-    print("Duration filter Google Trends", duration_filter)
-
     # Deduct start date of the date filter from the end date & the defined duration
     start_date = end_date + relativedelta(months=-duration_filter)
     time_filter = str(start_date) + " " + str(end_date)
-    print("Time filter for Google Trends: ", time_filter)
     return time_filter
 
 
@@ -44,7 +38,6 @@ def download_google_trends(
     # Send error message if the list with keywords is not supplied
     if list_keywords is None:
         print("Supplied list of keywords is empty")
-        print("Please make sure to supply a list of keywords")
 
     # Download the search volumes for the supplied keywords
     if list_keywords is not None:
@@ -57,7 +50,6 @@ def download_google_trends(
             backoff_factor=gt_backoff_factor,
         )
 
-        print(list_keywords, search_category, gt_date_filter)
         pytrends.build_payload(
             kw_list=list_keywords,
             cat=search_category,
@@ -164,13 +156,13 @@ def get_weather_data():
 
     pdf_weather = pdf_weather.pivot_table("observation_value", ["date"], "observation_type")
     pdf_weather.reset_index(drop=False, inplace=True)
-    pdf_weather["avg_temperature_num"] = (
+    pdf_weather["temperature_num"] = (
         pdf_weather["TAVG"] / 10
     )  # temperature is measured in 10th of degrees Celsius in dataset
     pdf_weather = set_columns_type(pdf_weather, ["date"], "datetime64[ns]")
 
     pdf_weather = pdf_weather.set_index(date_col)
-    pdf_weather = pdf_weather.resample("W").agg({"avg_temperature_num": np.mean})
+    pdf_weather = pdf_weather.resample("W").agg({"temperature_num": np.mean})
     pdf_weather.reset_index(inplace=True)
     return pdf_weather
 
@@ -188,4 +180,6 @@ def prepare_input_data():
         pdf_weather,
         on="date",
     )
+
+    pdf = pdf.loc[pdf.loc[:, "date"] <= datetime.datetime(2020, 8, 1)]
     return pdf

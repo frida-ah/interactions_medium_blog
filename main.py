@@ -30,14 +30,14 @@ def get_column_type(pdf: pd.DataFrame, suffix: str):
     return filtered_list
 
 
-def select_features(pdf, verbose=False, target_col="searches", date_col="date"):
+def select_features(pdf, target_col="searches", date_col="date"):
     pdf = pdf.sort_values(by=[date_col], ascending=True)
 
     # this ensures that the date column is not part of the feature selection
     pdf = pdf.set_index(date_col)
 
     y = pdf[target_col]
-    X = pdf[["avg_temperature_num", "holiday_cat"]]
+    X = pdf[["temperature_num", "holiday_cat"]]
     model = OLS(y, X).fit()
 
     model.summary()
@@ -49,17 +49,13 @@ def select_features(pdf, verbose=False, target_col="searches", date_col="date"):
 
     pdf_interaction = pd.DataFrame(
         x_interaction,
-        columns=["avg_temperature_num", "holiday_cat", "temperature_holiday_num"],
+        columns=["temperature_num", "holiday_cat", "temperature_holiday_num"],
     )
     pdf_dates = pdf.copy().reset_index(drop=False)[[date_col]]
 
     pdf_interaction_date = pd.concat([pdf_interaction, pdf_dates], axis=1).set_index(date_col)
 
     interaction_model = OLS(y, pdf_interaction_date).fit()
-
-    if verbose:
-        print("pdf_interaction_date:", pdf_interaction_date.columns)
-        print("y:", y.head())
 
     pdf_significant_features = interaction_model.pvalues[interaction_model.pvalues < 0.05]
 
