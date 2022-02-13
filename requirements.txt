@@ -5,3 +5,6 @@ pandas==1.2.4
 pyarrow==6.0.1
 scikit-learn==1.0.1
 shap==0.40.0
+statsmodels==0.13.2
+pytrends==4.8.0
+workalendar==16.2.0
